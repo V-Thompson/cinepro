@@ -86,11 +86,11 @@ router.get('/proxy', async (req: Request, res: Response) => {
 
     // Preserve important headers from the upstream response
     if (response.headers['content-type']) {
-      res.setHeader('Content-Type', response.headers['content-type']);
+      res.setHeader('Content-Type', response.headers['content-type'] as string);
     }
 
     if (response.headers['content-length']) {
-      res.setHeader('Content-Length', response.headers['content-length']);
+      res.setHeader('Content-Length', response.headers['content-length'] as string);
     }
 
     // Set the status code from the upstream response
