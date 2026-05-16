@@ -7,6 +7,7 @@ import type {
     Subtitle
 } from '@omss/framework';
 import { VixSrcApiResponse } from './vixsrc.types.js';
+import { fetchWithScraperAPI } from '../../utils/scraperApi.js';
 
 export class VixSrcProvider extends BaseProvider {
     readonly id = 'vixsrc';
@@ -106,36 +107,30 @@ export class VixSrcProvider extends BaseProvider {
     }
 
     /**
-     * Fetch page HTML
+     * Fetch page HTML - routes through ScraperAPI
      */
     private async fetchApi(url: string): Promise<VixSrcApiResponse | null> {
         try {
-            const response = await fetch(url, {
+            const data = await fetchWithScraperAPI<VixSrcApiResponse>(url, {
                 headers: this.HEADERS
             });
-
-            if (response.status !== 200) {
-                return null;
-            }
-
-            return (await response.json()) as VixSrcApiResponse;
-        } catch {
+            return data;
+        } catch (error) {
+            console.error('VixSrc fetchApi error:', error);
             return null;
         }
     }
 
     private async fetchPage(suburl: string): Promise<string | null> {
         try {
-            const response = await fetch(this.BASE_URL + suburl, {
-                headers: this.HEADERS
+            const fullUrl = this.BASE_URL + suburl;
+            const html = await fetchWithScraperAPI<string>(fullUrl, {
+                headers: this.HEADERS,
+                responseType: 'text'
             });
-
-            if (response.status !== 200) {
-                return null;
-            }
-
-            return await response.text();
-        } catch {
+            return html;
+        } catch (error) {
+            console.error('VixSrc fetchPage error:', error);
             return null;
         }
     }
@@ -183,7 +178,7 @@ export class VixSrcProvider extends BaseProvider {
     }
 
     /**
-     * Fetch playlist content
+     * Fetch playlist content - routes through ScraperAPI
      */
     private async fetchPlaylist(
         url: string,
@@ -191,19 +186,16 @@ export class VixSrcProvider extends BaseProvider {
         media: ProviderMediaObject
     ): Promise<string | null> {
         try {
-            const response = await fetch(url, {
+            const playlist = await fetchWithScraperAPI<string>(url, {
                 headers: {
                     ...this.HEADERS,
                     Referer: referer
-                }
+                },
+                responseType: 'text'
             });
-
-            if (response.status !== 200) {
-                return null;
-            }
-
-            return await response.text();
-        } catch {
+            return playlist;
+        } catch (error) {
+            console.error('VixSrc fetchPlaylist error:', error);
             return null;
         }
     }
@@ -365,15 +357,14 @@ export class VixSrcProvider extends BaseProvider {
     }
 
     /**
-     * Health check
+     * Health check - routes through ScraperAPI
      */
     async healthCheck(): Promise<boolean> {
         try {
-            const response = await fetch(this.BASE_URL, {
-                method: 'HEAD',
+            await fetchWithScraperAPI(this.BASE_URL, {
                 headers: this.HEADERS
             });
-            return response.status === 200;
+            return true;
         } catch {
             return false;
         }
