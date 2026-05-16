@@ -13,6 +13,7 @@ import type {
 } from './peachify.types.js';
 import decrypt from './decrypt.js';
 import { generateRandomUserAgent } from '../../utils/ua.js';
+import { fetchWithScraperAPI } from '../../utils/scraperApi.js';
 
 export class PeachifyProvider extends BaseProvider {
     readonly id = 'Peachify';
@@ -109,6 +110,7 @@ export class PeachifyProvider extends BaseProvider {
     /**
      * hits a single peachify api server, handles decryption if needed,
      * and maps the raw response into the omss provider result shape.
+     * Routes requests through ScraperAPI proxy.
      */
     private async fetchFromServer(
         serverBase: string,
@@ -117,55 +119,62 @@ export class PeachifyProvider extends BaseProvider {
         const apiUrl = this.buildApiUrl(serverBase, media);
         const serverName = new URL(serverBase).hostname;
 
-        const response = await fetch(apiUrl, { headers: this.HEADERS });
+        try {
+            const response = await fetchWithScraperAPI<PeachifyApiResponse>(apiUrl, {
+                headers: this.HEADERS
+            });
 
-        if (!response.ok) return null;
+            if (!response) return null;
 
-        let body = (await response.json()) as PeachifyApiResponse;
+            let body = response;
 
-        if (body.isEncrypted && body.data) {
-            const decrypted = await decrypt(body.data);
-            if (!decrypted) return null;
-            body = decrypted;
-        }
-        const rawSources = Array.isArray(body.sources) ? body.sources : [];
-        const rawSubtitles = Array.isArray(body.subtitles)
-            ? body.subtitles
-            : [];
-
-        if (rawSources.length === 0) return null;
-
-        const parsed = rawSources
-            .map((s) => this.parseSource(s, serverName))
-            .filter((s): s is PeachifyParsedSource => s !== null);
-
-        const parsedSubs = rawSubtitles
-            .map((s) => this.parseSubtitle(s, serverName))
-            .filter((s): s is PeachifyParsedSubtitle => s !== null);
-
-        const sources: ProviderResult['sources'] = parsed.map((s) => ({
-            url: this.createProxyUrl(s.url, s.headers ?? this.HEADERS),
-            type: s.type,
-            quality: s.quality?.toString() ?? 'Auto',
-            audioTracks: [
-                {
-                    label: s.dub,
-                    language: s.dub.toLowerCase().substring(0, 2)
-                }
-            ],
-            provider: {
-                id: this.id,
-                name: this.name
+            if (body.isEncrypted && body.data) {
+                const decrypted = await decrypt(body.data);
+                if (!decrypted) return null;
+                body = decrypted;
             }
-        }));
+            const rawSources = Array.isArray(body.sources) ? body.sources : [];
+            const rawSubtitles = Array.isArray(body.subtitles)
+                ? body.subtitles
+                : [];
 
-        const subtitles: ProviderResult['subtitles'] = parsedSubs.map((s) => ({
-            url: this.createProxyUrl(s.url, this.HEADERS),
-            label: s.label,
-            format: 'vtt'
-        }));
+            if (rawSources.length === 0) return null;
 
-        return { sources, subtitles, diagnostics: [] };
+            const parsed = rawSources
+                .map((s) => this.parseSource(s, serverName))
+                .filter((s): s is PeachifyParsedSource => s !== null);
+
+            const parsedSubs = rawSubtitles
+                .map((s) => this.parseSubtitle(s, serverName))
+                .filter((s): s is PeachifyParsedSubtitle => s !== null);
+
+            const sources: ProviderResult['sources'] = parsed.map((s) => ({
+                url: this.createProxyUrl(s.url, s.headers ?? this.HEADERS),
+                type: s.type,
+                quality: s.quality?.toString() ?? 'Auto',
+                audioTracks: [
+                    {
+                        label: s.dub,
+                        language: s.dub.toLowerCase().substring(0, 2)
+                    }
+                ],
+                provider: {
+                    id: this.id,
+                    name: this.name
+                }
+            }));
+
+            const subtitles: ProviderResult['subtitles'] = parsedSubs.map((s) => ({
+                url: this.createProxyUrl(s.url, this.HEADERS),
+                label: s.label,
+                format: 'vtt'
+            }));
+
+            return { sources, subtitles, diagnostics: [] };
+        } catch (error) {
+            console.error(`Peachify fetch error from ${serverName}:`, error);
+            return null;
+        }
     }
 
     /**
@@ -374,11 +383,10 @@ export class PeachifyProvider extends BaseProvider {
 
     async healthCheck(): Promise<boolean> {
         try {
-            const res = await fetch(this.BASE_URL, {
-                method: 'HEAD',
+            await fetchWithScraperAPI(this.BASE_URL, {
                 headers: this.HEADERS
             });
-            return res.status === 200;
+            return true;
         } catch {
             return false;
         }
