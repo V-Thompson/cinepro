@@ -64,8 +64,17 @@ router.get('/proxy', async (req: Request, res: Response) => {
       headers['Referer'] = `${parsedUrl.protocol}//${parsedUrl.host}`;
     }
 
+    // Build the request URL - route through ScraperAPI if API key is available
+    let requestUrl = url as string;
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+
+    if (scraperApiKey) {
+      // Route through ScraperAPI
+      requestUrl = `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url as string)}`;
+    }
+
     // Fetch the URL with axios
-    const response = await axios.get(url as string, {
+    const response = await axios.get(requestUrl, {
       headers,
       responseType: 'stream',
       timeout: 30000, // 30 second timeout
