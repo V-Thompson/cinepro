@@ -8,6 +8,7 @@ import type {
     Subtitle
 } from '@omss/framework';
 import { VidnestResponse } from './popr.types.js';
+import { fetchWithScraperAPI } from '../../utils/scraperApi.js';
 
 export class PoprProvider extends BaseProvider {
     readonly id = 'popr';
@@ -99,52 +100,49 @@ export class PoprProvider extends BaseProvider {
             );
         };
 
-        const requests = servers.map(
-            (server) =>
-                fetch(buildUrl(server), {
-                    headers: this.HEADERS
+        const requests = servers.map((server) =>
+            fetchWithScraperAPI<VidnestResponse>(buildUrl(server), {
+                headers: this.HEADERS
+            })
+                .then(async (data) => {
+                    const stream = data?.results?.[0]?.streams?.[0];
+                    if (!stream?.url) return null;
+
+                    const ext = (new URL(stream.url).pathname.match(
+                        /\.[^./]+$/
+                    ) || [''])[0];
+
+                    const quality = stream.quality;
+                    const INVALID_QUALITIES = ['Hindi', 'English', 'MAIN'];
+                    const QUALITIES = ['Hindi', 'English'];
+                    const languages = QUALITIES.includes(quality);
+
+                    return {
+                        source: {
+                            url: this.createProxyUrl(
+                                stream.url,
+                                stream.headers
+                            ),
+                            type: (ext === '.m3u8'
+                                ? 'hls'
+                                : 'mp4') as SourceType,
+                            quality: INVALID_QUALITIES.includes(quality)
+                                ? 'auto'
+                                : quality || 'auto',
+                            audioTracks: [
+                                {
+                                    language: languages
+                                        ? quality.toLowerCase().slice(0, 3)
+                                        : 'eng',
+                                    label: languages ? quality : 'English'
+                                }
+                            ],
+                            provider: { name: this.name, id: this.id }
+                        },
+                        subtitles: data.results?.[0]?.subtitles || []
+                    };
                 })
-                    .then(async (res) => {
-                        if (res.status !== 200) return null;
-                        const data = (await res.json()) as VidnestResponse;
-                        const stream = data?.results?.[0]?.streams?.[0];
-                        if (!stream?.url) return null;
-
-                        const ext = (new URL(stream.url).pathname.match(
-                            /\.[^./]+$/
-                        ) || [''])[0];
-
-                        const quality = stream.quality;
-                        const INVALID_QUALITIES = ['Hindi', 'English', 'MAIN'];
-                        const QUALITIES = ['Hindi', 'English'];
-                        const languages = QUALITIES.includes(quality);
-
-                        return {
-                            source: {
-                                url: this.createProxyUrl(
-                                    stream.url,
-                                    stream.headers
-                                ),
-                                type: (ext === '.m3u8'
-                                    ? 'hls'
-                                    : 'mp4') as SourceType,
-                                quality: INVALID_QUALITIES.includes(quality)
-                                    ? 'auto'
-                                    : quality || 'auto',
-                                audioTracks: [
-                                    {
-                                        language: languages
-                                            ? quality.toLowerCase().slice(0, 3)
-                                            : 'eng',
-                                        label: languages ? quality : 'English'
-                                    }
-                                ],
-                                provider: { name: this.name, id: this.id }
-                            },
-                            subtitles: data.results?.[0]?.subtitles || []
-                        };
-                    })
-                    .catch(() => null) // swallow per-request errors
+                .catch(() => null) // swallow per-request errors
         );
 
         const results = await Promise.allSettled(requests);
@@ -194,16 +192,16 @@ export class PoprProvider extends BaseProvider {
             ]
         };
     }
+
     /**
-     * Health check
+     * Health check - routes through ScraperAPI
      */
     async healthCheck(): Promise<boolean> {
         try {
-            const response = await fetch(this.BASE_URL, {
-                method: 'HEAD',
+            await fetchWithScraperAPI(this.BASE_URL, {
                 headers: this.HEADERS
             });
-            return response.status === 200;
+            return true;
         } catch {
             return false;
         }
