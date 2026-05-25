@@ -2,8 +2,11 @@ import { OMSSServer } from '@omss/framework';
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import express from 'express';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
+import cacheRoutes from './routes/cache.js';
+import { getCacheManager } from './cache/cacheManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,8 +49,8 @@ async function main() {
 
         cors: {
             origin: process.env.CORS_ORIGIN ?? '*',
-            methods: ['GET', 'OPTIONS'],
-            allowedHeaders: ['Content-Type', 'Authorization'],
+            methods: ['GET', 'POST', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization', 'x-extension-secret'],
             exposedHeaders: ['Content-Range', 'Accept-Ranges', 'ETag'],
             preflightContinue: false,
             optionsSuccessStatus: 204
@@ -79,7 +82,28 @@ async function main() {
     const registry = server.getRegistry();
     await registry.discoverProviders(path.join(__dirname, './providers/'));
 
+    // Initialize hybrid cache system
+    const cacheManager = getCacheManager();
+    console.log('[Server] Hybrid cache initialized');
+    console.log(
+        `[Server] Cache TTL - Sources: ${process.env.CACHE_TTL_SOURCES ?? 3600}s`
+    );
+
+    // Mount cache routes before starting server
+    const app = server.app as express.Application;
+    if (app) {
+        app.use('/', cacheRoutes);
+        console.log('[Server] Cache routes mounted');
+    }
+
     await server.start();
+
+    // Cleanup on shutdown
+    process.on('SIGINT', () => {
+        console.log('[Server] Shutting down gracefully...');
+        cacheManager.destroy();
+        process.exit(0);
+    });
 
     const publicUrl =
         process.env.PUBLIC_URL ??
@@ -92,8 +116,9 @@ async function main() {
         '🤝 We are looking for contributors to improve and develop!';
     const repo = 'Contribute: https://github.com/cinepro-org/ui';
     const tryIt = `🌐 Try it out: ${uiUrl}!`;
+    const hybrid = '⚡ Hybrid Caching: 5,000+ users supported!';
 
-    const lines = [title, '', repo, '', contrib, '', tryIt];
+    const lines = [title, '', repo, '', contrib, '', hybrid, '', tryIt];
 
     // compute box width based on longest line
     const width = Math.max(...lines.map((l) => l.length)) + 2;
